@@ -171,9 +171,15 @@ if ! command -v docker >/dev/null 2>&1; then
   stop_at "Step 2"
 fi
 
-if [ -f "$REPO_DIR/Dockerfile" ]; then
+if [ -f "$OPENENV_DIR/Dockerfile" ]; then
+  DOCKERFILE_PATH="$OPENENV_DIR/Dockerfile"
+  DOCKER_CONTEXT="$OPENENV_DIR"
+elif [ -f "$REPO_DIR/Dockerfile" ]; then
   DOCKERFILE_PATH="$REPO_DIR/Dockerfile"
   DOCKER_CONTEXT="$REPO_DIR"
+elif [ -f "$OPENENV_DIR/server/Dockerfile" ]; then
+  DOCKERFILE_PATH="$OPENENV_DIR/server/Dockerfile"
+  DOCKER_CONTEXT="$OPENENV_DIR"
 elif [ -f "$REPO_DIR/server/Dockerfile" ]; then
   DOCKERFILE_PATH="$REPO_DIR/server/Dockerfile"
   DOCKER_CONTEXT="$REPO_DIR/server"
@@ -181,7 +187,7 @@ elif [ -f "$REPO_DIR/risk_prediction/server/Dockerfile" ]; then
   DOCKERFILE_PATH="$REPO_DIR/risk_prediction/server/Dockerfile"
   DOCKER_CONTEXT="$REPO_DIR/risk_prediction"
 else
-  fail "No Dockerfile found in repo root, server/, or risk_prediction/server/"
+  fail "No Dockerfile found in OpenEnv dir, repo root, server/, or risk_prediction/server/"
   stop_at "Step 2"
 fi
 

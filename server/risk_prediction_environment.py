@@ -190,6 +190,7 @@ class FinancialFraudEnv(gym.Env):
         info = {
             "gvkey": self.current_gvkey,
             "year": self.current_company_df.iloc[min(self.current_step, len(self.current_company_df)-1)]['fyear'],
+            "is_fraud_company": self.is_fraud_company,
             "was_fraud": self.window_has_fraud
         }
         
@@ -257,7 +258,7 @@ class RiskPredictionEnvironment(
             # Episode context
             gvkey=str(info.get("gvkey", "")),
             fiscal_year=int(info.get("year", info.get("starting_year", 0))),
-            is_fraud_company=bool(info.get("is_fraud_company", False)),
+            is_fraud_company=bool(info.get("is_fraud_company", self._gym_env.is_fraud_company)),
             step_number=self._state.step_count,
             task_id=self._task_id,
             task_difficulty=self._task_definition.difficulty,

@@ -248,10 +248,6 @@ def _flags_to_str(flags: List[str]) -> str:
     return ",".join(flags) if flags else "none"
 
 
-def _single_line(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
-
-
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -263,7 +259,7 @@ def log_step(
     done: bool,
     error: Optional[str],
 ) -> None:
-    error_val = _single_line(error) if error else "null"
+    error_val = error if error else "null"
     print(
         f"[STEP] step={step} action={action} reward={reward:.2f} "
         f"done={str(done).lower()} error={error_val}",
@@ -343,10 +339,7 @@ def main() -> None:
             ]
 
             response_text = "HOLD"
-            step_error: Optional[str] = None
-            if client is None:
-                step_error = "missing_hf_token"
-            else:
+            if client is not None:
                 try:
                     completion = client.chat.completions.create(
                         model=MODEL_NAME,
@@ -356,8 +349,8 @@ def main() -> None:
                         stream=False,
                     )
                     response_text = (completion.choices[0].message.content or "").strip() or "HOLD"
-                except Exception as exc:  # noqa: BLE001
-                    step_error = str(exc)
+                except Exception:  # noqa: BLE001
+                    pass
 
             proposed_action = parse_action(response_text)
             action_type = stabilize_action(proposed_action, observation)
@@ -368,9 +361,7 @@ def main() -> None:
 
             reward = float(result.reward or 0.0)
             done = bool(result.done)
-            last_action_error = extract_last_action_error(observation)
-            if not step_error and last_action_error:
-                step_error = last_action_error
+            step_error = extract_last_action_error(observation)
 
             rewards.append(reward)
             total_reward += reward
