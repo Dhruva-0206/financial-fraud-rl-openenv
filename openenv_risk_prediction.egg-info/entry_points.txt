@@ -1,0 +1,2 @@
+[console_scripts]
+server = risk_prediction.server.app:main

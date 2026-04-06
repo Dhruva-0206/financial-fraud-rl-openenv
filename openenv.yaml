@@ -1,0 +1,22 @@
+spec_version: 1
+name: risk_prediction
+version: "1.1.0"
+description: Financial fraud auditing environment with graded task difficulties and normalized rewards.
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+tasks:
+  - id: easy
+    difficulty: easy
+    description: Conservative onboarding task with generous partial-progress credit.
+    reward_range: [0.0, 1.0]
+  - id: medium
+    difficulty: medium
+    description: Balanced fraud detection task for baseline leaderboard submission.
+    reward_range: [0.0, 1.0]
+  - id: hard
+    difficulty: hard
+    description: Strict production-like task requiring robust fraud discrimination.
+    reward_range: [0.0, 1.0]
+

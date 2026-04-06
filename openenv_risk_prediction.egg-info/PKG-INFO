@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: openenv-risk_prediction
+Version: 0.1.0
+Summary: Risk Prediction environment for OpenEnv
+Requires-Python: >=3.10
+Requires-Dist: gymnasium>=1.2.3
+Requires-Dist: numpy>=2.2.6
+Requires-Dist: openenv-core[core]>=0.2.1
+Requires-Dist: pandas>=2.3.3
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"

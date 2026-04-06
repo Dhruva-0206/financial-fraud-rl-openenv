@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.env
+*.log
+.DS_Store
+.vscode/
+trained_models/
+tensorboard_logs/
+*.sqlite3
+*.db
