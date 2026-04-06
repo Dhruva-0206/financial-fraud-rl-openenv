@@ -64,8 +64,8 @@ except ModuleNotFoundError:
 
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
+LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME")
 # URL of the running OpenEnv environment server
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction.hf.space")
 TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
@@ -299,7 +299,7 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    client: Optional[OpenAI] = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_KEY else None
+    client: Optional[OpenAI] = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN) if HF_TOKEN else None
     async_env = None
     env = None
 
