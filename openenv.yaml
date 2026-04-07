@@ -1,5 +1,11 @@
+name: risk_prediction
 env_id: financial-fraud-env
-version: "1.0.0"
+version: "1.1.0"
+description: Financial fraud auditing environment with graded task difficulties and normalized rewards.
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
 
 tasks:
   - id: task_easy
