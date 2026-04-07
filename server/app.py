@@ -28,6 +28,8 @@ Usage:
     python -m server.app
 """
 
+from typing import Dict, List
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:  # pragma: no cover
@@ -37,9 +39,11 @@ except Exception as e:  # pragma: no cover
 
 try:
     from ..models import RiskPredictionAction, RiskPredictionObservation
+    from ..task_graders import TASK_DEFINITIONS
     from .risk_prediction_environment import RiskPredictionEnvironment
 except (ModuleNotFoundError, ImportError):
     from models import RiskPredictionAction, RiskPredictionObservation
+    from task_graders import TASK_DEFINITIONS
     from server.risk_prediction_environment import RiskPredictionEnvironment
 
 
@@ -51,6 +55,67 @@ app = create_app(
     env_name="risk_prediction",
     max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
 )
+
+
+_TASK_GRADER_REGISTRY: Dict[str, Dict[str, str]] = {
+    "easy": {
+        "grader_id": "easy_grader",
+        "entrypoint": "task_graders:grade_easy",
+    },
+    "medium": {
+        "grader_id": "medium_grader",
+        "entrypoint": "task_graders:grade_medium",
+    },
+    "hard": {
+        "grader_id": "hard_grader",
+        "entrypoint": "task_graders:grade_hard",
+    },
+}
+
+
+def _build_task_payload() -> List[Dict]:
+    payload: List[Dict] = []
+    for task_id, task in TASK_DEFINITIONS.items():
+        grader = _TASK_GRADER_REGISTRY.get(task_id, {})
+        payload.append(
+            {
+                "id": task.task_id,
+                "task_id": task.task_id,
+                "difficulty": task.difficulty,
+                "description": task.description,
+                "reward_range": [0.0, 1.0],
+                "grader_id": grader.get("grader_id", f"{task.task_id}_grader"),
+                "grader": grader.get("entrypoint", ""),
+            }
+        )
+    return payload
+
+
+@app.get(
+    "/tasks",
+    tags=["Environment Info"],
+    summary="List available tasks",
+)
+def list_tasks() -> List[Dict]:
+    """Return a validator-friendly task registry with explicit grader mappings."""
+    return _build_task_payload()
+
+
+@app.get(
+    "/graders",
+    tags=["Environment Info"],
+    summary="List available graders",
+)
+def list_graders() -> List[Dict]:
+    """Return grader registry and the task each grader is linked to."""
+    return [
+        {
+            "id": spec["grader_id"],
+            "task": task_id,
+            "entrypoint": spec["entrypoint"],
+        }
+        for task_id, spec in _TASK_GRADER_REGISTRY.items()
+    ]
 
 
 def main() -> None:

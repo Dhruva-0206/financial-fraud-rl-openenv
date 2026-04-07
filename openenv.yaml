@@ -8,10 +8,13 @@ app: server.app:app
 port: 8000
 graders:
   - id: easy_grader
+    task: easy
     entrypoint: task_graders:grade_easy
   - id: medium_grader
+    task: medium
     entrypoint: task_graders:grade_medium
   - id: hard_grader
+    task: hard
     entrypoint: task_graders:grade_hard
 tasks:
   - id: easy
