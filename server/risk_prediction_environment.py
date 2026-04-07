@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import List
 from uuid import uuid4
 
 import gymnasium as gym
@@ -12,6 +13,88 @@ from openenv.core.env_server.types import State
 # Absolute path to the data directory — works regardless of working directory
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _DEFAULT_CSV = str(_DATA_DIR / "fraud_dataset.csv")
+_REQUIRED_COLUMNS = [
+    "fyear",
+    "gvkey",
+    "misstate",
+    "at",
+    "che",
+    "dltt",
+    "lt",
+    "ni",
+    "rect",
+    "sale",
+]
+
+
+def _build_synthetic_dataset(window_size: int) -> pd.DataFrame:
+    """Fallback dataset to keep the server bootable when file loading fails."""
+    row_count = max(window_size + 1, 5)
+    base_year = 2010
+    rows = [
+        {
+            "fyear": base_year + idx,
+            "gvkey": "fallback_company",
+            "misstate": 0,
+            "at": 100.0,
+            "che": 20.0,
+            "dltt": 15.0,
+            "lt": 55.0,
+            "ni": 5.0,
+            "rect": 10.0,
+            "sale": 120.0,
+        }
+        for idx in range(row_count)
+    ]
+    return pd.DataFrame(rows, columns=_REQUIRED_COLUMNS)
+
+
+def _candidate_csv_paths(csv_path: str = None) -> List[Path]:
+    """Build an ordered list of dataset paths to try."""
+    candidates = [
+        csv_path,
+        os.environ.get("FRAUD_CSV_PATH"),
+        _DEFAULT_CSV,
+        "/app/env/data/fraud_dataset.csv",
+        "/app/data/fraud_dataset.csv",
+        str(Path.cwd() / "data" / "fraud_dataset.csv"),
+    ]
+
+    seen = set()
+    resolved: List[Path] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate_path = Path(candidate).expanduser()
+        key = str(candidate_path)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(candidate_path)
+    return resolved
+
+
+def _load_dataset_or_fallback(csv_path: str = None, window_size: int = 4) -> tuple[pd.DataFrame, str]:
+    """Load CSV data from candidate paths; otherwise return synthetic fallback data."""
+    load_errors = []
+
+    for candidate in _candidate_csv_paths(csv_path):
+        if not candidate.is_file():
+            load_errors.append(f"{candidate} (file not found)")
+            continue
+
+        try:
+            df = pd.read_csv(candidate, usecols=_REQUIRED_COLUMNS, on_bad_lines="skip")
+            if not df.empty:
+                return df, str(candidate)
+            load_errors.append(f"{candidate} (empty dataframe)")
+        except Exception as exc:  # noqa: BLE001
+            load_errors.append(f"{candidate} ({exc})")
+
+    print("[WARN] Unable to load fraud dataset from configured paths; using fallback data.", flush=True)
+    for error in load_errors:
+        print(f"[WARN]  - {error}", flush=True)
+    return _build_synthetic_dataset(window_size), "synthetic:fallback"
 
 # Import the forensic risk engine — supports both package and standalone usage
 try:
@@ -40,22 +123,34 @@ class FinancialFraudEnv(gym.Env):
     def __init__(self, csv_path=None, window_size=4):
         super(FinancialFraudEnv, self).__init__()
 
-        if csv_path is None:
-            csv_path = os.environ.get("FRAUD_CSV_PATH", _DEFAULT_CSV)
-
         self.window_size = window_size
 
         # 1. Load and prepare the dataset
-        print(f"Loading dataset from: {csv_path}")
-        self.df = pd.read_csv(csv_path, usecols=[
-            "fyear", "gvkey", "misstate", "at", "che", "dltt", "lt", "ni", "rect", "sale"
-        ])
+        self.df, resolved_csv_path = _load_dataset_or_fallback(
+            csv_path=csv_path,
+            window_size=window_size,
+        )
+        print(f"Loading dataset from: {resolved_csv_path}")
         self.df = self.df.sort_values(by=["gvkey", "fyear"]).fillna(0)
+
+        for column in ("fyear", "misstate", "at", "che", "dltt", "lt", "ni", "rect", "sale"):
+            self.df[column] = pd.to_numeric(self.df[column], errors="coerce")
+        self.df = self.df.dropna(subset=["gvkey", "fyear"])
+        self.df["gvkey"] = self.df["gvkey"].astype(str)
+        self.df[["misstate", "at", "che", "dltt", "lt", "ni", "rect", "sale"]] = self.df[
+            ["misstate", "at", "che", "dltt", "lt", "ni", "rect", "sale"]
+        ].fillna(0.0)
+        self.df["fyear"] = self.df["fyear"].fillna(0).astype(int)
+        self.df["misstate"] = self.df["misstate"].astype(int)
         
         # Filter out companies with too little data
         counts = self.df['gvkey'].value_counts()
         valid_gvkeys = counts[counts >= self.window_size].index
         self.df = self.df[self.df['gvkey'].isin(valid_gvkeys)]
+        if self.df.empty:
+            print("[WARN] Dataset has no companies with enough history; using fallback data.", flush=True)
+            self.df = _build_synthetic_dataset(self.window_size)
+
         self.companies = self.df['gvkey'].unique().tolist()
 
         # Precompute deterministic company pools for seeded resets.

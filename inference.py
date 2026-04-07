@@ -62,6 +62,26 @@ except ModuleNotFoundError:
 # Configuration (read from environment — do NOT hard-code secrets)
 # ---------------------------------------------------------------------------
 
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
@@ -70,18 +90,18 @@ LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME")
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction.hf.space")
 TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
 BENCHMARK: str = os.getenv("RISK_PREDICTION_BENCHMARK", "risk_prediction")
-INFERENCE_SEED: int = int(os.getenv("INFERENCE_SEED", "42"))
+INFERENCE_SEED: int = _env_int("INFERENCE_SEED", 42)
 
 MAX_STEPS: int = 20          # Maximum window steps per episode before truncation
 TEMPERATURE: float = 0.1     # Low temperature for deterministic forensic decisions
 MAX_TOKENS: int = 50         # We only need a single word: FLAG or HOLD
 FALLBACK_ACTION: int = 0     # HOLD — conservative fallback on LLM failure
-FLAG_TOTAL_RISK_THRESHOLD: float = float(os.getenv("FLAG_TOTAL_RISK_THRESHOLD", "0.55"))
-FLAG_DIM_THRESHOLD: float = float(os.getenv("FLAG_DIM_THRESHOLD", "0.65"))
-FLAG_MIN_TOTAL_FOR_MULTI_DIM: float = float(os.getenv("FLAG_MIN_TOTAL_FOR_MULTI_DIM", "0.50"))
-SUCCESS_SCORE_THRESHOLD: float = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.50"))
-MIN_TOTAL_REWARD: float = float(os.getenv("MIN_TOTAL_REWARD", "-10.0"))
-MAX_TOTAL_REWARD: float = float(os.getenv("MAX_TOTAL_REWARD", "10.0"))
+FLAG_TOTAL_RISK_THRESHOLD: float = _env_float("FLAG_TOTAL_RISK_THRESHOLD", 0.55)
+FLAG_DIM_THRESHOLD: float = _env_float("FLAG_DIM_THRESHOLD", 0.65)
+FLAG_MIN_TOTAL_FOR_MULTI_DIM: float = _env_float("FLAG_MIN_TOTAL_FOR_MULTI_DIM", 0.50)
+SUCCESS_SCORE_THRESHOLD: float = _env_float("SUCCESS_SCORE_THRESHOLD", 0.50)
+MIN_TOTAL_REWARD: float = _env_float("MIN_TOTAL_REWARD", -10.0)
+MAX_TOTAL_REWARD: float = _env_float("MAX_TOTAL_REWARD", 10.0)
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -299,7 +319,13 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    client: Optional[OpenAI] = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN) if HF_TOKEN else None
+    client: Optional[OpenAI] = None
+    if HF_TOKEN:
+        try:
+            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        except Exception:  # noqa: BLE001
+            client = None
+
     async_env = None
     env = None
 
@@ -314,8 +340,14 @@ def main() -> None:
 
     try:
         if LOCAL_IMAGE_NAME:
-            async_env = asyncio.run(RiskPredictionEnv.from_docker_image(LOCAL_IMAGE_NAME))
-        else:
+            try:
+                async_env = asyncio.run(RiskPredictionEnv.from_docker_image(LOCAL_IMAGE_NAME))
+            except BaseException as exc:  # noqa: BLE001
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
+                async_env = None
+
+        if async_env is None:
             async_env = RiskPredictionEnv(base_url=SERVER_URL)
 
         env = async_env.sync()
@@ -379,7 +411,9 @@ def main() -> None:
 
         score = normalize_score(total_reward, rewards)
         success = score >= SUCCESS_SCORE_THRESHOLD
-    except Exception:
+    except BaseException as exc:  # noqa: BLE001
+        if isinstance(exc, KeyboardInterrupt):
+            raise
         success = False
         score = normalize_score(total_reward, rewards)
     finally:
