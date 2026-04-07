@@ -63,7 +63,7 @@ def _env_float(name: str, default: float) -> float:
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-IMAGE_NAME: Optional[str] = os.getenv("IMAGE_NAME")
+LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction.hf.space")
 TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
@@ -149,6 +149,15 @@ def normalize_score(total_reward: float, rewards: List[float], steps_taken: int)
     return max(0.0, min(1.0, score))
 
 
+def extract_last_action_error(observation: RiskPredictionObservation) -> Optional[str]:
+    metadata = getattr(observation, "metadata", None)
+    if isinstance(metadata, dict):
+        last_error = metadata.get("last_action_error")
+        if last_error:
+            return str(last_error)
+    return None
+
+
 def rule_based_action(observation: RiskPredictionObservation) -> Optional[int]:
     # Only handle absolute extremes in Python
     if observation.risk_level == "CRITICAL": return 1
@@ -169,8 +178,8 @@ async def main() -> None:
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        if IMAGE_NAME:
-            env = await RiskPredictionEnv.from_docker_image(IMAGE_NAME)
+        if LOCAL_IMAGE_NAME:
+            env = await RiskPredictionEnv.from_docker_image(LOCAL_IMAGE_NAME)
         else:
             env = RiskPredictionEnv(base_url=SERVER_URL)
 
@@ -204,8 +213,9 @@ async def main() -> None:
             rewards.append(reward)
             total_reward += reward
             steps_taken = step
+            step_error = extract_last_action_error(observation)
             
-            log_step(step=step, action=action_label, reward=reward, done=result.done, error=None)
+            log_step(step=step, action=action_label, reward=reward, done=result.done, error=step_error)
             history.append(f"S{step}: {action_label}")
             if result.done: break
 
@@ -216,7 +226,11 @@ async def main() -> None:
         print(f"[CRITICAL DEBUG] {e}", file=sys.stderr)
         score = normalize_score(total_reward, rewards, steps_taken)
     finally:
-        if env: await env.close()
+        if env:
+            try:
+                await env.close()
+            except Exception as e:
+                print(f"[DEBUG] env.close() error: {e}", file=sys.stderr)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
