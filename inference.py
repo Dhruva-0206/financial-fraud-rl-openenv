@@ -65,7 +65,7 @@ MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 API_KEY: str = os.environ["API_KEY"]
 LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 
-SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction.hf.space")
+SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction-59aba4b.hf.space")
 TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
 BENCHMARK: str = os.getenv("RISK_PREDICTION_BENCHMARK", "risk_prediction")
 INFERENCE_SEED: int = _env_int("INFERENCE_SEED", 42)
