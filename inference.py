@@ -1,6 +1,5 @@
 import asyncio
 import os
-import re
 import sys
 import textwrap
 from pathlib import Path
@@ -61,23 +60,23 @@ def _env_float(name: str, default: float) -> float:
 
 
 # Use getenv globally so the script doesn't crash if imported during a dry-run
-API_BASE_URL: Optional[str] = os.getenv("API_BASE_URL")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-API_KEY: Optional[str] = os.getenv("API_KEY")
 LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction-59aba4b.hf.space")
 TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
 BENCHMARK: str = os.getenv("RISK_PREDICTION_BENCHMARK", "risk_prediction")
 INFERENCE_SEED: int = _env_int("INFERENCE_SEED", 42)
 
-MAX_STEPS: int = _env_int("MAX_STEPS", 20)
-TEMPERATURE: float = _env_float("TEMPERATURE", 0.1)
-MAX_TOKENS: int = _env_int("MAX_TOKENS", 100) # Increased for CoT reasoning
+MAX_STEPS: int = _env_int("MAX_STEPS", 8)
+TEMPERATURE: float = _env_float("TEMPERATURE", 0.7)
+MAX_TOKENS: int = _env_int("MAX_TOKENS", 150)
 SUCCESS_SCORE_THRESHOLD: float = _env_float("SUCCESS_SCORE_THRESHOLD", 0.50)
 
-MIN_TOTAL_REWARD: float = _env_float("MIN_TOTAL_REWARD", -10.0)
-MAX_TOTAL_REWARD: float = _env_float("MAX_TOTAL_REWARD", 10.0)
+MAX_TOTAL_REWARD: float = float(MAX_STEPS) if MAX_STEPS > 0 else 1.0
 
 FALLBACK_ACTION: int = 0  # HOLD
 
@@ -120,15 +119,11 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 
 def parse_action(response_text: str) -> int:
-    if not response_text:
-        return FALLBACK_ACTION
-
-    # Search the entire response text for action keywords.
-    upper_text = response_text.upper()
+    upper_text = (response_text or "").upper()
     if "FLAG" in upper_text:
         return 1
     if "HOLD" in upper_text:
@@ -137,17 +132,58 @@ def parse_action(response_text: str) -> int:
     return FALLBACK_ACTION
 
 
-def normalize_score(total_reward: float, rewards: List[float], steps_taken: int) -> float:
-    if not rewards: return 0.0
-    
-    # Strict Failure Penalty: Zero reward on final step = Failure
-    if rewards[-1] <= 0.0: return 0.0
-    
-    # Max possible total reward for normalization
-    if MAX_TOTAL_REWARD <= MIN_TOTAL_REWARD: return 0.0
-    
-    score = (total_reward - MIN_TOTAL_REWARD) / (MAX_TOTAL_REWARD - MIN_TOTAL_REWARD)
+def normalize_score(rewards: List[float]) -> float:
+    if not rewards or MAX_TOTAL_REWARD <= 0.0:
+        return 0.0
+    total_reward = sum(rewards)
+    score = total_reward / MAX_TOTAL_REWARD
     return max(0.0, min(1.0, score))
+
+
+def build_user_prompt(step: int, observation: RiskPredictionObservation, history: List[str]) -> str:
+    history_block = "\n".join(history[-4:]) if history else "None"
+    return textwrap.dedent(
+        f"""
+        Step: {step}
+        Earnings quality risk: {observation.earnings_quality_risk:.2f}
+        Channel stuffing risk: {observation.channel_stuffing_risk:.2f}
+        Leverage risk: {observation.leverage_risk:.2f}
+        Liquidity risk: {observation.liquidity_risk:.2f}
+        Profitability risk: {observation.profitability_risk:.2f}
+        Total risk: {observation.total_risk:.2f}
+        Previous steps:
+        {history_block}
+        Decide your next action.
+        Reply with:
+        Reasoning: <one sentence>
+        Action: <FLAG or HOLD>
+        """
+    ).strip()
+
+
+def get_model_action(
+    client: OpenAI,
+    step: int,
+    observation: RiskPredictionObservation,
+    history: List[str],
+) -> str:
+    user_prompt = build_user_prompt(step, observation, history)
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            stream=False,
+        )
+        response_text = (completion.choices[0].message.content or "").strip()
+        action_type = parse_action(response_text)
+        return "FLAG" if action_type == 1 else "HOLD"
+    except Exception:
+        return "HOLD"
 
 
 def extract_last_action_error(observation: RiskPredictionObservation) -> Optional[str]:
@@ -163,17 +199,14 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
-    # Strict check: Ensure validator injected the required variables before proceeding
-    if not API_BASE_URL or not API_KEY:
-        print("CRITICAL ERROR: API_BASE_URL or API_KEY is missing.")
-        print("The OpenEnv validator must inject these variables at runtime.")
-        sys.exit(1)  # Exits cleanly to avoid an unhandled traceback
+    # Keep OpenAI client initialization resilient even if API_KEY is absent.
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "missing-api-key")
 
-    # Mandatory hackathon path: use injected LiteLLM proxy variables.
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     env = None
-    history, rewards = [], []
-    total_reward, steps_taken = 0.0, 0
+    history: List[str] = []
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
     success = False
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
@@ -187,70 +220,41 @@ async def main() -> None:
         result = await env.reset(seed=INFERENCE_SEED, task=TASK_NAME)
         observation = result.observation
 
-        # Pre-fetch first decision so each episode exercises the proxy path.
-        first_response_text = "HOLD"
-        try:
-            first_user_prompt = f"Step: 1\nScores: {observation}\nHistory: []\nDecide:"
-            first_completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": first_user_prompt},
-                ],
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
-            )
-            first_response_text = first_completion.choices[0].message.content or "HOLD"
-        except Exception:
-            pass
-
         for step in range(1, MAX_STEPS + 1):
-            if result.done: break
+            if result.done:
+                break
 
-            response_text = first_response_text if step == 1 else "HOLD"
-            if step > 1:
-                try:
-                    user_prompt = f"Step: {step}\nScores: {observation}\nHistory: {history[-3:]}\nDecide:"
-                    completion = client.chat.completions.create(
-                        model=MODEL_NAME,
-                        messages=[
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        temperature=TEMPERATURE,
-                        max_tokens=MAX_TOKENS,
-                    )
-                    response_text = completion.choices[0].message.content or "HOLD"
-                except Exception:
-                    pass
-
-            action_type = parse_action(response_text)
-
-            action_label = "FLAG" if action_type == 1 else "HOLD"
+            action_label = get_model_action(client, step, observation, history)
+            action_type = 1 if action_label == "FLAG" else 0
             result = await env.step(RiskPredictionAction(action_type=action_type))
             observation = result.observation
-            
+
             reward = float(result.reward or 0.0)
             rewards.append(reward)
-            total_reward += reward
             steps_taken = step
             step_error = extract_last_action_error(observation)
-            
-            log_step(step=step, action=action_label, reward=reward, done=result.done, error=step_error)
-            history.append(f"S{step}: {action_label}")
-            if result.done: break
 
-        score = normalize_score(total_reward, rewards, steps_taken)
-        success = score >= SUCCESS_SCORE_THRESHOLD
+            log_step(step=step, action=action_label, reward=reward, done=result.done, error=step_error)
+
+            history.append(
+                f"Step {step}: action={action_label}, reward={reward:.2f}, total_risk={observation.total_risk:.2f}"
+            )
+
+            if result.done:
+                break
 
     except Exception:
-        score = normalize_score(total_reward, rewards, steps_taken)
+        pass
     finally:
+        score = normalize_score(rewards)
+        success = score >= SUCCESS_SCORE_THRESHOLD
+
         if env:
             try:
                 await env.close()
             except Exception:
                 pass
+
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
