@@ -60,9 +60,9 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_BASE_URL: str = os.environ["API_BASE_URL"]
 MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_KEY: str = os.environ["API_KEY"]
 LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction.hf.space")
@@ -157,19 +157,13 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
             return str(last_error)
     return None
 
-
-def rule_based_action(observation: RiskPredictionObservation) -> Optional[int]:
-    # Only handle absolute extremes in Python
-    if observation.risk_level == "CRITICAL": return 1
-    if observation.total_risk < 0.20 and not observation.flags: return 0
-    return None
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY) if API_KEY else None
+    # Mandatory hackathon path: use injected LiteLLM proxy variables.
+    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
     env = None
     history, rewards = [], []
     total_reward, steps_taken = 0.0, 0
@@ -186,24 +180,44 @@ async def main() -> None:
         result = await env.reset(seed=INFERENCE_SEED, task=TASK_NAME)
         observation = result.observation
 
+        # Pre-fetch first decision so each episode exercises the proxy path.
+        first_response_text = "HOLD"
+        try:
+            first_user_prompt = f"Step: 1\nScores: {observation}\nHistory: []\nDecide:"
+            first_completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": first_user_prompt},
+                ],
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+            )
+            first_response_text = first_completion.choices[0].message.content or "HOLD"
+        except Exception as e:
+            print(f"[DEBUG] LLM API Error at step 1 prefetch: {e}", file=sys.stderr)
+
         for step in range(1, MAX_STEPS + 1):
             if result.done: break
 
-            action_type = rule_based_action(observation)
-            
-            if action_type is None:
-                response_text = "HOLD"
-                if client:
-                    try:
-                        user_prompt = f"Step: {step}\nScores: {observation}\nHistory: {history[-3:]}\nDecide:"
-                        completion = client.chat.completions.create(
-                            model=MODEL_NAME,
-                            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
-                            temperature=TEMPERATURE, max_tokens=MAX_TOKENS
-                        )
-                        response_text = completion.choices[0].message.content or "HOLD"
-                    except: response_text = "HOLD"
-                action_type = parse_action(response_text)
+            response_text = first_response_text if step == 1 else "HOLD"
+            if step > 1:
+                try:
+                    user_prompt = f"Step: {step}\nScores: {observation}\nHistory: {history[-3:]}\nDecide:"
+                    completion = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=TEMPERATURE,
+                        max_tokens=MAX_TOKENS,
+                    )
+                    response_text = completion.choices[0].message.content or "HOLD"
+                except Exception as e:
+                    print(f"[DEBUG] LLM API Error at step {step}: {e}", file=sys.stderr)
+
+            action_type = parse_action(response_text)
 
             action_label = "FLAG" if action_type == 1 else "HOLD"
             result = await env.step(RiskPredictionAction(action_type=action_type))
