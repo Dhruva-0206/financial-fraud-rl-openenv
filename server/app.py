@@ -58,9 +58,9 @@ app = create_app(
 
 
 _TASK_GRADER_REGISTRY: Dict[str, Dict[str, str]] = {
-    "easy": {
-        "grader_id": "easy_grader",
-        "entrypoint": "task_graders:grade_easy",
+    "small": {
+        "grader_id": "small_grader",
+        "entrypoint": "task_graders:grade_small",
     },
     "medium": {
         "grader_id": "medium_grader",

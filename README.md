@@ -42,11 +42,11 @@ Core endpoints exposed by the server:
 
 ## Tasks and Agent Graders
 
-Three graded tasks are provided (easy → medium → hard):
+Three graded tasks are provided (small → medium → hard):
 
 | Task | Difficulty | Purpose | Reward Range |
 |------|------------|---------|--------------|
-| `easy` | easy | onboarding task with generous partial-progress credit | `[0.0, 1.0]` |
+| `small` | small | onboarding task with generous partial-progress credit | `[0.0, 1.0]` |
 | `medium` | medium | balanced benchmark task for default submissions | `[0.0, 1.0]` |
 | `hard` | hard | strict production-style grading | `[0.0, 1.0]` |
 
@@ -125,7 +125,7 @@ Optional:
 
 - `SERVER_URL` (defaults to deployed Space URL)
 - `LOCAL_IMAGE_NAME` (uses `from_docker_image()` path)
-- `RISK_PREDICTION_TASK` (`easy`, `medium`, `hard`)
+- `RISK_PREDICTION_TASK` (`small`, `medium`, `hard`)
 
 ## Docker
 

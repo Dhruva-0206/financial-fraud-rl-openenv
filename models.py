@@ -83,7 +83,7 @@ class RiskPredictionObservation(Observation):
     # --- Task + grading context ---
     task_id: str = Field(
         default="medium",
-        description="Task identifier used for grading (easy, medium, hard)",
+        description="Task identifier used for grading (small, medium, hard)",
     )
     task_difficulty: str = Field(
         default="medium",

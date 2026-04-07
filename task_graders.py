@@ -13,9 +13,9 @@ class TaskDefinition:
 
 
 TASK_DEFINITIONS: Dict[str, TaskDefinition] = {
-    "easy": TaskDefinition(
-        task_id="easy",
-        difficulty="easy",
+    "small": TaskDefinition(
+        task_id="small",
+        difficulty="small",
         description=(
             "Conservative fraud triage with generous partial-progress credit. "
             "Designed for onboarding and baseline stability."
@@ -64,10 +64,16 @@ TASK_DEFINITIONS: Dict[str, TaskDefinition] = {
 }
 
 
+TASK_ID_ALIASES: Dict[str, str] = {
+    "easy": "small",
+}
+
+
 def normalize_task_id(task_id: str | None) -> str:
     if not task_id:
         return "medium"
     normalized = task_id.strip().lower()
+    normalized = TASK_ID_ALIASES.get(normalized, normalized)
     return normalized if normalized in TASK_DEFINITIONS else "medium"
 
 
@@ -112,10 +118,15 @@ def _coerce_reward_done(*args, **kwargs) -> Tuple[float, bool]:
     return float(raw_reward), bool(done)
 
 
-def grade_easy(*args, **kwargs) -> float:
+def grade_small(*args, **kwargs) -> float:
     raw_reward, done = _coerce_reward_done(*args, **kwargs)
-    score, _ = grade_step(task_id="easy", raw_reward=raw_reward, done=done)
+    score, _ = grade_step(task_id="small", raw_reward=raw_reward, done=done)
     return score
+
+
+def grade_easy(*args, **kwargs) -> float:
+    # Backward compatibility for older references that still call grade_easy.
+    return grade_small(*args, **kwargs)
 
 
 def grade_medium(*args, **kwargs) -> float:

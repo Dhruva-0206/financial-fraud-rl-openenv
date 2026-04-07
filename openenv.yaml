@@ -7,9 +7,9 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 graders:
-  - id: easy_grader
-    task: easy
-    entrypoint: task_graders:grade_easy
+  - id: small_grader
+    task: small
+    entrypoint: task_graders:grade_small
   - id: medium_grader
     task: medium
     entrypoint: task_graders:grade_medium
@@ -17,13 +17,13 @@ graders:
     task: hard
     entrypoint: task_graders:grade_hard
 tasks:
-  - id: easy
-    task_id: easy
-    difficulty: easy
+  - id: small
+    task_id: small
+    difficulty: small
     description: Conservative onboarding task with generous partial-progress credit.
     reward_range: [0.0, 1.0]
-    grader: task_graders:grade_easy
-    grader_id: easy_grader
+    grader: task_graders:grade_small
+    grader_id: small_grader
   - id: medium
     task_id: medium
     difficulty: medium
