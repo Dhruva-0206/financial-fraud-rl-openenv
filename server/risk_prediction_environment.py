@@ -317,7 +317,7 @@ class RiskPredictionEnvironment(
         super().__init__()
         self._gym_env = FinancialFraudEnv(csv_path=csv_path, window_size=window_size)
         self._state = State(episode_id=str(uuid4()), step_count=0)
-        configured_task = task_id or os.environ.get("RISK_PREDICTION_TASK", "medium")
+        configured_task = task_id or os.environ.get("RISK_PREDICTION_TASK", "task_medium")
         self._task_id = normalize_task_id(configured_task)
         self._task_definition = TASK_DEFINITIONS[self._task_id]
 

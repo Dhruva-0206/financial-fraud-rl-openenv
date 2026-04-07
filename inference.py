@@ -67,7 +67,7 @@ API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"
 MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction-59aba4b.hf.space")
-TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "medium")
+TASK_NAME: str = os.getenv("RISK_PREDICTION_TASK", "task_medium")
 BENCHMARK: str = os.getenv("RISK_PREDICTION_BENCHMARK", "risk_prediction")
 INFERENCE_SEED: int = _env_int("INFERENCE_SEED", 42)
 

@@ -66,6 +66,10 @@ TASK_DEFINITIONS: Dict[str, TaskDefinition] = {
 
 TASK_ID_ALIASES: Dict[str, str] = {
     "easy": "small",
+    "task_easy": "small",
+    "task_small": "small",
+    "task_medium": "medium",
+    "task_hard": "hard",
 }
 
 
