@@ -60,9 +60,10 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-API_BASE_URL: str = os.environ["API_BASE_URL"]
+# Use getenv globally so the script doesn't crash if imported during a dry-run
+API_BASE_URL: Optional[str] = os.getenv("API_BASE_URL")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-API_KEY: str = os.environ["API_KEY"]
+API_KEY: Optional[str] = os.getenv("API_KEY")
 LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 
 SERVER_URL: str = os.getenv("SERVER_URL", "https://ankesh2-risk-prediction-59aba4b.hf.space")
@@ -162,8 +163,14 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
+    # Strict check: Ensure validator injected the required variables before proceeding
+    if not API_BASE_URL or not API_KEY:
+        print("CRITICAL ERROR: API_BASE_URL or API_KEY is missing.")
+        print("The OpenEnv validator must inject these variables at runtime.")
+        sys.exit(1)  # Exits cleanly to avoid an unhandled traceback
+
     # Mandatory hackathon path: use injected LiteLLM proxy variables.
-    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     env = None
     history, rewards = [], []
     total_reward, steps_taken = 0.0, 0
