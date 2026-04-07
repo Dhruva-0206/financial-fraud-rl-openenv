@@ -11,12 +11,15 @@ tasks:
     difficulty: easy
     description: Conservative onboarding task with generous partial-progress credit.
     reward_range: [0.0, 1.0]
+    grader: task_graders:grade_step
   - id: medium
     difficulty: medium
     description: Balanced fraud detection task for baseline leaderboard submission.
     reward_range: [0.0, 1.0]
+    grader: task_graders:grade_step
   - id: hard
     difficulty: hard
     description: Strict production-like task requiring robust fraud discrimination.
     reward_range: [0.0, 1.0]
+    grader: task_graders:grade_step
 
