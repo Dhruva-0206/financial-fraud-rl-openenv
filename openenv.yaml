@@ -6,20 +6,33 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+graders:
+  - id: easy_grader
+    entrypoint: task_graders:grade_easy
+  - id: medium_grader
+    entrypoint: task_graders:grade_medium
+  - id: hard_grader
+    entrypoint: task_graders:grade_hard
 tasks:
   - id: easy
+    task_id: easy
     difficulty: easy
     description: Conservative onboarding task with generous partial-progress credit.
     reward_range: [0.0, 1.0]
-    grader: task_graders:grade_step
+    grader: task_graders:grade_easy
+    grader_id: easy_grader
   - id: medium
+    task_id: medium
     difficulty: medium
     description: Balanced fraud detection task for baseline leaderboard submission.
     reward_range: [0.0, 1.0]
-    grader: task_graders:grade_step
+    grader: task_graders:grade_medium
+    grader_id: medium_grader
   - id: hard
+    task_id: hard
     difficulty: hard
     description: Strict production-like task requiring robust fraud discrimination.
     reward_range: [0.0, 1.0]
-    grader: task_graders:grade_step
+    grader: task_graders:grade_hard
+    grader_id: hard_grader
 

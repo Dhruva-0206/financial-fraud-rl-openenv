@@ -92,3 +92,39 @@ def grade_step(task_id: str, raw_reward: float, done: bool) -> Tuple[float, str]
     score = float(task.score_map.get(outcome, 0.0))
     score = max(0.0, min(1.0, score))
     return score, outcome
+
+
+def _coerce_reward_done(*args, **kwargs) -> Tuple[float, bool]:
+    """
+    Best-effort parser for validator grader calls with varying signatures.
+    Returns (raw_reward, done).
+    """
+    raw_reward = kwargs.get("raw_reward", kwargs.get("reward", 0.0))
+    done = kwargs.get("done", False)
+
+    if args:
+        # Accept common positional pattern: (raw_reward, done)
+        if isinstance(args[0], (int, float)):
+            raw_reward = float(args[0])
+        if len(args) > 1 and isinstance(args[1], bool):
+            done = bool(args[1])
+
+    return float(raw_reward), bool(done)
+
+
+def grade_easy(*args, **kwargs) -> float:
+    raw_reward, done = _coerce_reward_done(*args, **kwargs)
+    score, _ = grade_step(task_id="easy", raw_reward=raw_reward, done=done)
+    return score
+
+
+def grade_medium(*args, **kwargs) -> float:
+    raw_reward, done = _coerce_reward_done(*args, **kwargs)
+    score, _ = grade_step(task_id="medium", raw_reward=raw_reward, done=done)
+    return score
+
+
+def grade_hard(*args, **kwargs) -> float:
+    raw_reward, done = _coerce_reward_done(*args, **kwargs)
+    score, _ = grade_step(task_id="hard", raw_reward=raw_reward, done=done)
+    return score
