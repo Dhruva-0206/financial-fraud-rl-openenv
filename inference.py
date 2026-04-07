@@ -194,8 +194,8 @@ async def main() -> None:
                 max_tokens=MAX_TOKENS,
             )
             first_response_text = first_completion.choices[0].message.content or "HOLD"
-        except Exception as e:
-            print(f"[DEBUG] LLM API Error at step 1 prefetch: {e}", file=sys.stderr)
+        except Exception:
+            pass
 
         for step in range(1, MAX_STEPS + 1):
             if result.done: break
@@ -214,8 +214,8 @@ async def main() -> None:
                         max_tokens=MAX_TOKENS,
                     )
                     response_text = completion.choices[0].message.content or "HOLD"
-                except Exception as e:
-                    print(f"[DEBUG] LLM API Error at step {step}: {e}", file=sys.stderr)
+                except Exception:
+                    pass
 
             action_type = parse_action(response_text)
 
@@ -236,15 +236,14 @@ async def main() -> None:
         score = normalize_score(total_reward, rewards, steps_taken)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
-    except Exception as e:
-        print(f"[CRITICAL DEBUG] {e}", file=sys.stderr)
+    except Exception:
         score = normalize_score(total_reward, rewards, steps_taken)
     finally:
         if env:
             try:
                 await env.close()
-            except Exception as e:
-                print(f"[DEBUG] env.close() error: {e}", file=sys.stderr)
+            except Exception:
+                pass
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
