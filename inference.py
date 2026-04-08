@@ -5,7 +5,10 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional
 
+from fastapi import FastAPI
 from openai import OpenAI
+
+app = FastAPI()
 
 try:
     from dotenv import load_dotenv
@@ -193,6 +196,69 @@ def extract_last_action_error(observation: RiskPredictionObservation) -> Optiona
         if last_error:
             return str(last_error)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Grading
+# ---------------------------------------------------------------------------
+
+GRADER_PROMPTS = {
+    "easy": (
+        "You are grading EASY fraud-detection trajectories. "
+        "Reward strong early fraud signals and consistent risk-aware behavior. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+    "medium": (
+        "You are grading MEDIUM difficulty trajectories. "
+        "Balance precision and recall, penalize unnecessary flags, and reward accurate "
+        "escalation under mixed risk evidence. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+    "hard": (
+        "You are grading HARD production-style trajectories. "
+        "Require robust multi-step reasoning, penalize both misses and false alarms, "
+        "and reward only highly reliable fraud judgments. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+}
+
+
+def llm_grade(difficulty: str) -> float:
+    prompt = GRADER_PROMPTS[difficulty]
+    try:
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "missing-api-key")
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
+            ],
+            temperature=0.0,
+            max_tokens=16,
+        )
+        raw = (completion.choices[0].message.content or "").strip()
+        return float(raw)
+    except Exception:
+        return 0.5
+
+
+@app.get("/grade/task_easy")
+def grade_easy():
+    score = max(0.01, min(0.99, llm_grade("easy")))
+    return {"score": score, "reward": score}
+
+
+@app.get("/grade/task_medium")
+def grade_medium():
+    score = max(0.01, min(0.99, llm_grade("medium")))
+    return {"score": score, "reward": score}
+
+
+@app.get("/grade/task_hard")
+def grade_hard():
+    score = max(0.01, min(0.99, llm_grade("hard")))
+    return {"score": score, "reward": score}
+
 
 # ---------------------------------------------------------------------------
 # Main

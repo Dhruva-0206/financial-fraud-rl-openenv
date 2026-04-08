@@ -1,30 +1,19 @@
+spec_version: 1
 name: risk_prediction
-env_id: financial-fraud-env
 version: "1.1.0"
-description: Financial fraud auditing environment with graded task difficulties and normalized rewards.
 type: space
 runtime: fastapi
-app: server.app:app
-port: 8000
-
+app: inference:app
+port: 7860
 tasks:
   - id: task_easy
     difficulty: easy
-    max_steps: 10
-    grader:
-      type: llm
-      prompt_template: "You are grading EASY fraud-detection trajectories. Reward strong early fraud signals and consistent risk-aware behavior. Return exactly one numeric score in [0.0, 1.0]."
+    grader: grade/task_easy
 
   - id: task_medium
     difficulty: medium
-    max_steps: 15
-    grader:
-      type: llm
-      prompt_template: "You are grading MEDIUM difficulty trajectories. Balance precision and recall, penalize unnecessary flags, and reward accurate escalation under mixed risk evidence. Return exactly one numeric score in [0.0, 1.0]."
+    grader: grade/task_medium
 
   - id: task_hard
     difficulty: hard
-    max_steps: 20
-    grader:
-      type: llm
-      prompt_template: "You are grading HARD production-style trajectories. Require robust multi-step reasoning, penalize both misses and false alarms, and reward only highly reliable fraud judgments. Return exactly one numeric score in [0.0, 1.0]."
+    grader: grade/task_hard
