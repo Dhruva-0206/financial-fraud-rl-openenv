@@ -64,7 +64,7 @@ def _env_float(name: str, default: float) -> float:
 
 # Use getenv globally so the script doesn't crash if imported during a dry-run
 LOCAL_IMAGE_NAME: Optional[str] = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
-API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")

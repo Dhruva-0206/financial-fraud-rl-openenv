@@ -190,7 +190,7 @@ _GRADER_PROMPTS = {
 def _llm_grade(difficulty: str) -> float:
     prompt = _GRADER_PROMPTS[difficulty]
     try:
-        api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+        api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
         api_base = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
         model = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
         client = OpenAI(base_url=api_base, api_key=api_key or "missing-api-key")
