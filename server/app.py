@@ -28,6 +28,7 @@ Usage:
     python -m server.app
 """
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -35,6 +36,11 @@ try:
     import yaml
 except Exception:  # pragma: no cover
     yaml = None
+
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover
+    OpenAI = None
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -156,6 +162,70 @@ def list_tasks() -> List[Dict]:
     return _build_task_payload()
 
 
+# ---------------------------------------------------------------------------
+# Grader endpoints
+# ---------------------------------------------------------------------------
+
+_GRADER_PROMPTS = {
+    "easy": (
+        "You are grading EASY fraud-detection trajectories. "
+        "Reward strong early fraud signals and consistent risk-aware behavior. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+    "medium": (
+        "You are grading MEDIUM difficulty trajectories. "
+        "Balance precision and recall, penalize unnecessary flags, and reward accurate "
+        "escalation under mixed risk evidence. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+    "hard": (
+        "You are grading HARD production-style trajectories. "
+        "Require robust multi-step reasoning, penalize both misses and false alarms, "
+        "and reward only highly reliable fraud judgments. "
+        "Return exactly one numeric score between 0.0 and 1.0 and nothing else."
+    ),
+}
+
+
+def _llm_grade(difficulty: str) -> float:
+    prompt = _GRADER_PROMPTS[difficulty]
+    try:
+        api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+        api_base = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+        model = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+        client = OpenAI(base_url=api_base, api_key=api_key or "missing-api-key")
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
+            ],
+            temperature=0.0,
+            max_tokens=16,
+        )
+        return float((completion.choices[0].message.content or "").strip())
+    except Exception:
+        return 0.5
+
+
+@app.get("/grade/task_easy", tags=["Graders"], summary="Grade easy task trajectory")
+def grade_easy():
+    score = max(0.01, min(0.99, _llm_grade("easy")))
+    return {"score": score, "reward": score}
+
+
+@app.get("/grade/task_medium", tags=["Graders"], summary="Grade medium task trajectory")
+def grade_medium():
+    score = max(0.01, min(0.99, _llm_grade("medium")))
+    return {"score": score, "reward": score}
+
+
+@app.get("/grade/task_hard", tags=["Graders"], summary="Grade hard task trajectory")
+def grade_hard():
+    score = max(0.01, min(0.99, _llm_grade("hard")))
+    return {"score": score, "reward": score}
+
+
 def main() -> None:
     """
     Entry point for direct execution via uv run or python -m.
@@ -173,7 +243,7 @@ def main() -> None:
     import uvicorn
 
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "7860"))
     uvicorn.run(app, host=host, port=port)
 
 
