@@ -19,10 +19,10 @@ Endpoints:
 
 Usage:
     # Development (with auto-reload):
-    uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+    uvicorn server.app:app --reload --host 0.0.0.0 --port 7860
 
     # Production:
-    uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 4
+    uvicorn server.app:app --host 0.0.0.0 --port 7860 --workers 4
 
     # Or run directly:
     python -m server.app
@@ -181,7 +181,6 @@ def main() -> None:
 
     This function enables running the server without Docker:
         uv run --project . server
-        uv run --project . server --port 8001
         python -m risk_prediction.server.app
 
     For production deployments, consider using uvicorn directly with
@@ -192,8 +191,7 @@ def main() -> None:
     import uvicorn
 
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "7860"))
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=7860)
 
 
 if __name__ == '__main__':

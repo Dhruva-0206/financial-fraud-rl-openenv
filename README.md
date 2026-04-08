@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: red
 sdk: docker
 pinned: false
-app_port: 8000
+app_port: 7860
 base_path: /web
 tags:
   - openenv
@@ -102,7 +102,7 @@ uv run server
 Health check:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:7860/health
 ```
 
 ## Reproducible Baseline Inference
@@ -133,7 +133,7 @@ Build and run:
 
 ```bash
 docker build -t risk_prediction-env:latest -f server/Dockerfile .
-docker run -p 8000:8000 risk_prediction-env:latest
+docker run -p 7860:7860 risk_prediction-env:latest
 ```
 
 ## Hugging Face Spaces Deployment

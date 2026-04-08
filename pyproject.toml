@@ -20,6 +20,8 @@ dependencies = [
     # "openenv-core[core] @ git+https://github.com/meta-pytorch/OpenEnv.git",
     "numpy>=2.2.6",
     "openenv-core[core]>=0.2.1",
+    "openai>=1.0.0",
+    "PyYAML>=6.0",
     # Environment-specific dependencies
     # Add all dependencies needed for your environment here
     # Examples:
