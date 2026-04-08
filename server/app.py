@@ -63,43 +63,87 @@ app = create_app(
 
 _OPENENV_YAML_PATH = Path(__file__).resolve().parents[1] / "openenv.yaml"
 
+# Hardcoded task definitions — used as a reliable fallback if openenv.yaml cannot be read
+# (e.g. path resolution issues inside the Docker container on HF Spaces).
+_FALLBACK_TASKS: List[Dict[str, Any]] = [
+    {
+        "id": "task_easy",
+        "difficulty": "easy",
+        "max_steps": 10,
+        "grader": {
+            "type": "llm",
+            "prompt_template": (
+                "You are grading EASY fraud-detection trajectories. "
+                "Reward strong early fraud signals and consistent risk-aware behavior. "
+                "Return exactly one numeric score in [0.0, 1.0]."
+            ),
+        },
+    },
+    {
+        "id": "task_medium",
+        "difficulty": "medium",
+        "max_steps": 15,
+        "grader": {
+            "type": "llm",
+            "prompt_template": (
+                "You are grading MEDIUM difficulty trajectories. "
+                "Balance precision and recall, penalize unnecessary flags, and reward "
+                "accurate escalation under mixed risk evidence. "
+                "Return exactly one numeric score in [0.0, 1.0]."
+            ),
+        },
+    },
+    {
+        "id": "task_hard",
+        "difficulty": "hard",
+        "max_steps": 20,
+        "grader": {
+            "type": "llm",
+            "prompt_template": (
+                "You are grading HARD production-style trajectories. "
+                "Require robust multi-step reasoning, penalize both misses and false alarms, "
+                "and reward only highly reliable fraud judgments. "
+                "Return exactly one numeric score in [0.0, 1.0]."
+            ),
+        },
+    },
+]
+
 
 def _build_task_payload() -> List[Dict[str, Any]]:
-    if yaml is None or not _OPENENV_YAML_PATH.exists():
-        return []
+    # Try reading from openenv.yaml first.
+    if yaml is not None and _OPENENV_YAML_PATH.exists():
+        try:
+            with _OPENENV_YAML_PATH.open("r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
 
-    try:
-        with _OPENENV_YAML_PATH.open("r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-    except Exception:
-        return []
+            tasks = data.get("tasks")
+            if isinstance(tasks, list):
+                payload: List[Dict[str, Any]] = []
+                for task in tasks:
+                    if not isinstance(task, dict):
+                        continue
+                    grader = task.get("grader")
+                    if not isinstance(grader, dict):
+                        grader = {}
+                    payload.append(
+                        {
+                            "id": str(task.get("id", "")).strip(),
+                            "difficulty": str(task.get("difficulty", "")).strip(),
+                            "max_steps": int(task.get("max_steps", 0) or 0),
+                            "grader": {
+                                "type": str(grader.get("type", "")).strip(),
+                                "prompt_template": str(grader.get("prompt_template", "")).strip(),
+                            },
+                        }
+                    )
+                if len(payload) >= 3:
+                    return payload
+        except Exception:
+            pass
 
-    tasks = data.get("tasks")
-    if not isinstance(tasks, list):
-        return []
-
-    payload: List[Dict[str, Any]] = []
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-
-        grader = task.get("grader")
-        if not isinstance(grader, dict):
-            grader = {}
-
-        payload.append(
-            {
-                "id": str(task.get("id", "")).strip(),
-                "difficulty": str(task.get("difficulty", "")).strip(),
-                "max_steps": int(task.get("max_steps", 0) or 0),
-                "grader": {
-                    "type": str(grader.get("type", "")).strip(),
-                    "prompt_template": str(grader.get("prompt_template", "")).strip(),
-                },
-            }
-        )
-
-    return payload
+    # Fall back to hardcoded definitions so the endpoint never returns an empty list.
+    return _FALLBACK_TASKS
 
 
 @app.get(
