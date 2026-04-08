@@ -80,8 +80,6 @@ SUCCESS_SCORE_THRESHOLD: float = _env_float("SUCCESS_SCORE_THRESHOLD", 0.50)
 
 MAX_TOTAL_REWARD: float = float(MAX_STEPS) if MAX_STEPS > 0 else 1.0
 
-FALLBACK_ACTION: int = 0  # HOLD
-
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
@@ -125,20 +123,16 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def force_proxy_call(client: OpenAI) -> None:
-    try:
-        client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are a fraud-risk auditor."},
-                {"role": "user", "content": "Reply with HOLD."},
-            ],
-            temperature=0.0,
-            max_tokens=8,
-            stream=False,
-        )
-    except Exception:
-        # Keep runtime robust while still attempting at least one proxy call.
-        pass
+    client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": "You are a fraud-risk auditor."},
+            {"role": "user", "content": "Reply with HOLD."},
+        ],
+        temperature=0.0,
+        max_tokens=8,
+        stream=False,
+    )
 
 
 def parse_action(response_text: str) -> int:
@@ -147,8 +141,7 @@ def parse_action(response_text: str) -> int:
         return 1
     if "HOLD" in upper_text:
         return 0
-
-    return FALLBACK_ACTION
+    raise ValueError("Model response missing required FLAG/HOLD action")
 
 
 def normalize_score(rewards: List[float]) -> float:
@@ -187,22 +180,19 @@ def get_model_action(
     history: List[str],
 ) -> str:
     user_prompt = build_user_prompt(step, observation, history)
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        response_text = (completion.choices[0].message.content or "").strip()
-        action_type = parse_action(response_text)
-        return "FLAG" if action_type == 1 else "HOLD"
-    except Exception:
-        return "HOLD"
+    completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+        stream=False,
+    )
+    response_text = (completion.choices[0].message.content or "").strip()
+    action_type = parse_action(response_text)
+    return "FLAG" if action_type == 1 else "HOLD"
 
 
 def extract_last_action_error(observation: RiskPredictionObservation) -> Optional[str]:
@@ -241,23 +231,20 @@ GRADER_PROMPTS = {
 
 def llm_grade(difficulty: str) -> float:
     prompt = GRADER_PROMPTS[difficulty]
-    try:
-        client = _llm_client
-        if client is None:
-            return 0.5
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
-            ],
-            temperature=0.0,
-            max_tokens=16,
-        )
-        raw = (completion.choices[0].message.content or "").strip()
-        return float(raw)
-    except Exception:
-        return 0.5
+    client = _llm_client
+    if client is None:
+        raise RuntimeError("Missing API_KEY/API_BASE_URL for grading client")
+    completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
+        ],
+        temperature=0.0,
+        max_tokens=16,
+    )
+    raw = (completion.choices[0].message.content or "").strip()
+    return float(raw)
 
 
 @app.get("/grade/task_easy")
@@ -329,9 +316,6 @@ async def main() -> None:
 
             if result.done:
                 break
-
-    except Exception:
-        pass
     finally:
         score = normalize_score(rewards)
         success = score >= SUCCESS_SCORE_THRESHOLD

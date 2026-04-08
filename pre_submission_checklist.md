@@ -18,7 +18,7 @@
 Before submitting, ensure the following variables are defined in your environment configuration:
 * `API_BASE_URL`: The API endpoint for the LLM.
 * `MODEL_NAME`: The model identifier to use for inference.
-* `HF_TOKEN`: Your Hugging Face / API key.
+* `API_KEY`: Your validator-injected API key.
 
 **Requirements:**
 * The inference script must be named `inference.py` and placed in the root directory of the project.

@@ -27,28 +27,6 @@ _REQUIRED_COLUMNS = [
 ]
 
 
-def _build_synthetic_dataset(window_size: int) -> pd.DataFrame:
-    """Fallback dataset to keep the server bootable when file loading fails."""
-    row_count = max(window_size + 1, 5)
-    base_year = 2010
-    rows = [
-        {
-            "fyear": base_year + idx,
-            "gvkey": "fallback_company",
-            "misstate": 0,
-            "at": 100.0,
-            "che": 20.0,
-            "dltt": 15.0,
-            "lt": 55.0,
-            "ni": 5.0,
-            "rect": 10.0,
-            "sale": 120.0,
-        }
-        for idx in range(row_count)
-    ]
-    return pd.DataFrame(rows, columns=_REQUIRED_COLUMNS)
-
-
 def _candidate_csv_paths(csv_path: str = None) -> List[Path]:
     """Build an ordered list of dataset paths to try."""
     candidates = [
@@ -74,8 +52,8 @@ def _candidate_csv_paths(csv_path: str = None) -> List[Path]:
     return resolved
 
 
-def _load_dataset_or_fallback(csv_path: str = None, window_size: int = 4) -> tuple[pd.DataFrame, str]:
-    """Load CSV data from candidate paths; otherwise return synthetic fallback data."""
+def _load_dataset(csv_path: str = None) -> tuple[pd.DataFrame, str]:
+    """Load CSV data from candidate paths and fail if none are valid."""
     load_errors = []
 
     for candidate in _candidate_csv_paths(csv_path):
@@ -91,10 +69,9 @@ def _load_dataset_or_fallback(csv_path: str = None, window_size: int = 4) -> tup
         except Exception as exc:  # noqa: BLE001
             load_errors.append(f"{candidate} ({exc})")
 
-    print("[WARN] Unable to load fraud dataset from configured paths; using fallback data.", flush=True)
-    for error in load_errors:
-        print(f"[WARN]  - {error}", flush=True)
-    return _build_synthetic_dataset(window_size), "synthetic:fallback"
+    raise FileNotFoundError(
+        "Unable to load fraud dataset from configured paths: " + "; ".join(load_errors)
+    )
 
 # Import the forensic risk engine — supports both package and standalone usage
 try:
@@ -126,10 +103,7 @@ class FinancialFraudEnv(gym.Env):
         self.window_size = window_size
 
         # 1. Load and prepare the dataset
-        self.df, resolved_csv_path = _load_dataset_or_fallback(
-            csv_path=csv_path,
-            window_size=window_size,
-        )
+        self.df, resolved_csv_path = _load_dataset(csv_path=csv_path)
         print(f"Loading dataset from: {resolved_csv_path}")
         self.df = self.df.sort_values(by=["gvkey", "fyear"]).fillna(0)
 
@@ -148,8 +122,7 @@ class FinancialFraudEnv(gym.Env):
         valid_gvkeys = counts[counts >= self.window_size].index
         self.df = self.df[self.df['gvkey'].isin(valid_gvkeys)]
         if self.df.empty:
-            print("[WARN] Dataset has no companies with enough history; using fallback data.", flush=True)
-            self.df = _build_synthetic_dataset(self.window_size)
+            raise ValueError("Dataset has no companies with enough history for configured window_size")
 
         self.companies = self.df['gvkey'].unique().tolist()
 
@@ -174,6 +147,7 @@ class FinancialFraudEnv(gym.Env):
         self.current_step = 0
         self.max_steps = 0
         self.is_fraud_company = False
+        self.window_has_fraud = False
         # Stores the full evaluate_company() result so wrappers can read it
         self._last_eval_result: dict = {}
 
@@ -199,24 +173,19 @@ class FinancialFraudEnv(gym.Env):
         self.window_has_fraud = window_df['misstate'].max() == 1
         
         timeseries = self._get_company_timeseries(window_df)
-        
-        try:
-            eval_result = evaluate_company(timeseries)
-            self._last_eval_result = eval_result  # cache for wrappers
-            risks = eval_result["risk_breakdown"]
-            obs = np.array([
-                risks.get("earnings_quality", 0.0),
-                risks.get("channel_stuffing", 0.0),
-                risks.get("leverage", 0.0),
-                risks.get("liquidity", 0.0),
-                risks.get("profitability", 0.0),
-                eval_result["total_risk"]
-            ], dtype=np.float32)
-            return obs
-        except Exception:
-            # Fallback if engine fails on weird data (e.g., all zeros)
-            self._last_eval_result = {}
-            return np.zeros(6, dtype=np.float32)
+
+        eval_result = evaluate_company(timeseries)
+        self._last_eval_result = eval_result  # cache for wrappers
+        risks = eval_result["risk_breakdown"]
+        obs = np.array([
+            risks["earnings_quality"],
+            risks["channel_stuffing"],
+            risks["leverage"],
+            risks["liquidity"],
+            risks["profitability"],
+            eval_result["total_risk"],
+        ], dtype=np.float32)
+        return obs
 
     def reset(self, seed=None, options=None):
         """Starts a new episode with a new random company."""
@@ -337,23 +306,24 @@ class RiskPredictionEnvironment(
     ) -> RiskPredictionObservation:
         """Convert a gym observation array + info dict → Pydantic Observation."""
         eval_result = self._gym_env._last_eval_result
-        risks = eval_result.get("risk_breakdown", {})
+        risks = eval_result["risk_breakdown"]
+        fiscal_year = info["year"] if "year" in info else info["starting_year"]
 
         return RiskPredictionObservation(
             # Risk dimensions
-            earnings_quality_risk=float(risks.get("earnings_quality", obs_arr[0])),
-            channel_stuffing_risk=float(risks.get("channel_stuffing", obs_arr[1])),
-            leverage_risk=float(risks.get("leverage", obs_arr[2])),
-            liquidity_risk=float(risks.get("liquidity", obs_arr[3])),
-            profitability_risk=float(risks.get("profitability", obs_arr[4])),
-            total_risk=float(eval_result.get("total_risk", obs_arr[5])),
+            earnings_quality_risk=float(risks["earnings_quality"]),
+            channel_stuffing_risk=float(risks["channel_stuffing"]),
+            leverage_risk=float(risks["leverage"]),
+            liquidity_risk=float(risks["liquidity"]),
+            profitability_risk=float(risks["profitability"]),
+            total_risk=float(eval_result["total_risk"]),
             # Risk engine summary
-            risk_level=eval_result.get("risk_level", "LOW"),
-            flags=eval_result.get("flags", []),
+            risk_level=eval_result["risk_level"],
+            flags=eval_result["flags"],
             # Episode context
-            gvkey=str(info.get("gvkey", "")),
-            fiscal_year=int(info.get("year", info.get("starting_year", 0))),
-            is_fraud_company=bool(info.get("is_fraud_company", self._gym_env.is_fraud_company)),
+            gvkey=str(info["gvkey"]),
+            fiscal_year=int(fiscal_year),
+            is_fraud_company=bool(info["is_fraud_company"]),
             step_number=self._state.step_count,
             task_id=self._task_id,
             task_difficulty=self._task_definition.difficulty,

@@ -32,15 +32,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-try:
-    import yaml
-except Exception:  # pragma: no cover
-    yaml = None
-
-try:
-    from openai import OpenAI
-except Exception:  # pragma: no cover
-    OpenAI = None
+from fastapi import HTTPException
+import yaml
+from openai import OpenAI
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -69,87 +63,42 @@ app = create_app(
 
 _OPENENV_YAML_PATH = Path(__file__).resolve().parents[1] / "openenv.yaml"
 
-# Hardcoded task definitions — used as a reliable fallback if openenv.yaml cannot be read
-# (e.g. path resolution issues inside the Docker container on HF Spaces).
-_FALLBACK_TASKS: List[Dict[str, Any]] = [
-    {
-        "id": "task_easy",
-        "difficulty": "easy",
-        "max_steps": 10,
-        "grader": {
-            "type": "llm",
-            "prompt_template": (
-                "You are grading EASY fraud-detection trajectories. "
-                "Reward strong early fraud signals and consistent risk-aware behavior. "
-                "Return exactly one numeric score in [0.0, 1.0]."
-            ),
-        },
-    },
-    {
-        "id": "task_medium",
-        "difficulty": "medium",
-        "max_steps": 15,
-        "grader": {
-            "type": "llm",
-            "prompt_template": (
-                "You are grading MEDIUM difficulty trajectories. "
-                "Balance precision and recall, penalize unnecessary flags, and reward "
-                "accurate escalation under mixed risk evidence. "
-                "Return exactly one numeric score in [0.0, 1.0]."
-            ),
-        },
-    },
-    {
-        "id": "task_hard",
-        "difficulty": "hard",
-        "max_steps": 20,
-        "grader": {
-            "type": "llm",
-            "prompt_template": (
-                "You are grading HARD production-style trajectories. "
-                "Require robust multi-step reasoning, penalize both misses and false alarms, "
-                "and reward only highly reliable fraud judgments. "
-                "Return exactly one numeric score in [0.0, 1.0]."
-            ),
-        },
-    },
-]
-
 
 def _build_task_payload() -> List[Dict[str, Any]]:
-    # Try reading from openenv.yaml first.
-    if yaml is not None and _OPENENV_YAML_PATH.exists():
-        try:
-            with _OPENENV_YAML_PATH.open("r", encoding="utf-8") as fh:
-                data = yaml.safe_load(fh) or {}
+    if not _OPENENV_YAML_PATH.exists():
+        raise FileNotFoundError(f"Missing OpenEnv config: {_OPENENV_YAML_PATH}")
 
-            tasks = data.get("tasks")
-            if isinstance(tasks, list):
-                payload: List[Dict[str, Any]] = []
-                for task in tasks:
-                    if not isinstance(task, dict):
-                        continue
-                    grader = task.get("grader")
-                    if not isinstance(grader, dict):
-                        grader = {}
-                    payload.append(
-                        {
-                            "id": str(task.get("id", "")).strip(),
-                            "difficulty": str(task.get("difficulty", "")).strip(),
-                            "max_steps": int(task.get("max_steps", 0) or 0),
-                            "grader": {
-                                "type": str(grader.get("type", "")).strip(),
-                                "prompt_template": str(grader.get("prompt_template", "")).strip(),
-                            },
-                        }
-                    )
-                if len(payload) >= 3:
-                    return payload
-        except Exception:
-            pass
+    with _OPENENV_YAML_PATH.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
 
-    # Fall back to hardcoded definitions so the endpoint never returns an empty list.
-    return _FALLBACK_TASKS
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("openenv.yaml must define a non-empty tasks list")
+
+    payload: List[Dict[str, Any]] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            raise ValueError("Each task entry must be a mapping")
+
+        task_id = str(task.get("id", "")).strip()
+        difficulty = str(task.get("difficulty", "")).strip()
+        grader = task.get("grader")
+
+        if not task_id or not difficulty:
+            raise ValueError("Each task must include non-empty id and difficulty")
+        if grader is None:
+            raise ValueError(f"Task '{task_id}' is missing grader")
+
+        payload.append(
+            {
+                "id": task_id,
+                "difficulty": difficulty,
+                "max_steps": int(task.get("max_steps", 0) or 0),
+                "grader": grader,
+            }
+        )
+
+    return payload
 
 
 @app.get(
@@ -189,40 +138,40 @@ _GRADER_PROMPTS = {
 
 def _llm_grade(difficulty: str) -> float:
     prompt = _GRADER_PROMPTS[difficulty]
-    try:
-        api_key = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-        api_base = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-        model = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-        client = OpenAI(base_url=api_base, api_key=api_key or "missing-api-key")
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
-            ],
-            temperature=0.0,
-            max_tokens=16,
-        )
-        return float((completion.choices[0].message.content or "").strip())
-    except Exception:
-        return 0.5
+    api_key = os.environ["API_KEY"]
+    api_base = os.environ["API_BASE_URL"]
+    model = os.environ["MODEL_NAME"]
+    client = OpenAI(base_url=api_base, api_key=api_key)
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "Grade the most recent trajectory for this difficulty level."},
+        ],
+        temperature=0.0,
+        max_tokens=16,
+    )
+    return float((completion.choices[0].message.content or "").strip())
 
 
-@app.get("/grade/task_easy", tags=["Graders"], summary="Grade easy task trajectory")
-def grade_easy():
-    score = max(0.01, min(0.99, _llm_grade("easy")))
-    return {"score": score, "reward": score}
+def _task_difficulty_map() -> Dict[str, str]:
+    payload = _build_task_payload()
+    return {
+        str(task["id"]).strip(): str(task["difficulty"]).strip().lower()
+        for task in payload
+    }
 
 
-@app.get("/grade/task_medium", tags=["Graders"], summary="Grade medium task trajectory")
-def grade_medium():
-    score = max(0.01, min(0.99, _llm_grade("medium")))
-    return {"score": score, "reward": score}
+@app.get("/grade/{task_id}", tags=["Graders"], summary="Grade task trajectory")
+def grade_task(task_id: str):
+    difficulty_map = _task_difficulty_map()
+    difficulty = difficulty_map.get(task_id)
+    if difficulty is None:
+        raise HTTPException(status_code=404, detail=f"Unknown task_id: {task_id}")
+    if difficulty not in _GRADER_PROMPTS:
+        raise HTTPException(status_code=422, detail=f"Unsupported task difficulty: {difficulty}")
 
-
-@app.get("/grade/task_hard", tags=["Graders"], summary="Grade hard task trajectory")
-def grade_hard():
-    score = max(0.01, min(0.99, _llm_grade("hard")))
+    score = max(0.01, min(0.99, _llm_grade(difficulty)))
     return {"score": score, "reward": score}
 
 

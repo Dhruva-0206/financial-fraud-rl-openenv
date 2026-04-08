@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 ### 4. Set environment variables
 set API_BASE_URL=https://router.huggingface.co/v1
-set HF_TOKEN=your_huggingface_token
+set API_KEY=your_api_key
 set MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct
 
 ### 5. Start the OpenEnv server

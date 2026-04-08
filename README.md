@@ -119,7 +119,7 @@ Required environment variables:
 
 - `API_BASE_URL`
 - `MODEL_NAME`
-- `HF_TOKEN`
+- `API_KEY`
 
 Optional:
 
