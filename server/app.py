@@ -51,14 +51,36 @@ except (ModuleNotFoundError, ImportError):
     from server.risk_prediction_environment import RiskPredictionEnvironment
 
 
+def _create_openenv_app():
+    """Build the OpenEnv FastAPI app with cross-version create_app compatibility."""
+    try:
+        return create_app(
+            RiskPredictionEnvironment,
+            RiskPredictionAction,
+            RiskPredictionObservation,
+            env_name="risk_prediction",
+            max_concurrent_envs=1,
+        )
+    except TypeError:
+        pass
+
+    try:
+        return create_app(
+            RiskPredictionEnvironment,
+            RiskPredictionAction,
+            RiskPredictionObservation,
+            env_name="risk_prediction",
+        )
+    except TypeError:
+        return create_app(
+            RiskPredictionEnvironment,
+            RiskPredictionAction,
+            RiskPredictionObservation,
+        )
+
+
 # Create the app with web interface and README integration
-app = create_app(
-    RiskPredictionEnvironment,
-    RiskPredictionAction,
-    RiskPredictionObservation,
-    env_name="risk_prediction",
-    max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
-)
+app = _create_openenv_app()
 
 
 _OPENENV_YAML_PATH = Path(__file__).resolve().parents[1] / "openenv.yaml"
