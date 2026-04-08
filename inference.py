@@ -5,10 +5,13 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI
 from openai import OpenAI
 
-app = FastAPI()
+try:
+    from risk_prediction.server.app import app
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from server.app import app
 
 # ---------------------------------------------------------------------------
 # Import resolution
