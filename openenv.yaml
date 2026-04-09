@@ -7,13 +7,19 @@ app: inference:app
 port: 7860
 tasks:
   - id: task_easy
+    name: Easy Fraud Triage
+    description: Conservative onboarding task with generous partial-progress credit.
     difficulty: easy
-    grader: grade/task_easy
+    grader: "task_graders:grade_easy"
 
   - id: task_medium
+    name: Balanced Fraud Detection
+    description: Balanced benchmark task with moderate penalties for misses and false alarms.
     difficulty: medium
-    grader: grade/task_medium
+    grader: "task_graders:grade_medium"
 
   - id: task_hard
+    name: Strict Production Audit
+    description: Strict production-style grading emphasizing precision and recall.
     difficulty: hard
-    grader: grade/task_hard
+    grader: "task_graders:grade_hard"
