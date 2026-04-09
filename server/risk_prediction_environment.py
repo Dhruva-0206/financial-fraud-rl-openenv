@@ -27,6 +27,48 @@ _REQUIRED_COLUMNS = [
 ]
 
 
+def _build_fallback_dataset() -> pd.DataFrame:
+    """Create a tiny deterministic dataset so env startup never hard-fails."""
+    rows = []
+    base_year = 2012
+
+    # Clean company trajectory.
+    for idx in range(8):
+        rows.append(
+            {
+                "fyear": base_year + idx,
+                "gvkey": "CLEAN_DEMO",
+                "misstate": 0,
+                "at": 1000 + 20 * idx,
+                "che": 120 + 3 * idx,
+                "dltt": 200 + 5 * idx,
+                "lt": 500 + 8 * idx,
+                "ni": 70 + 2 * idx,
+                "rect": 160 + 4 * idx,
+                "sale": 900 + 18 * idx,
+            }
+        )
+
+    # Fraud trajectory with deteriorating fundamentals and late fraud labels.
+    for idx in range(8):
+        rows.append(
+            {
+                "fyear": base_year + idx,
+                "gvkey": "FRAUD_DEMO",
+                "misstate": 1 if idx >= 4 else 0,
+                "at": 950 + 8 * idx,
+                "che": 95 - 2 * idx,
+                "dltt": 360 + 14 * idx,
+                "lt": 610 + 16 * idx,
+                "ni": 36 - 6 * idx,
+                "rect": 170 + 20 * idx,
+                "sale": 860 + 10 * idx,
+            }
+        )
+
+    return pd.DataFrame(rows, columns=_REQUIRED_COLUMNS)
+
+
 def _candidate_csv_paths(csv_path: str = None) -> List[Path]:
     """Build an ordered list of dataset paths to try."""
     candidates = [
@@ -53,7 +95,7 @@ def _candidate_csv_paths(csv_path: str = None) -> List[Path]:
 
 
 def _load_dataset(csv_path: str = None) -> tuple[pd.DataFrame, str]:
-    """Load CSV data from candidate paths and fail if none are valid."""
+    """Load CSV data from candidate paths with a deterministic fallback dataset."""
     load_errors = []
 
     for candidate in _candidate_csv_paths(csv_path):
@@ -69,9 +111,13 @@ def _load_dataset(csv_path: str = None) -> tuple[pd.DataFrame, str]:
         except Exception as exc:  # noqa: BLE001
             load_errors.append(f"{candidate} ({exc})")
 
-    raise FileNotFoundError(
-        "Unable to load fraud dataset from configured paths: " + "; ".join(load_errors)
+    print(
+        "Warning: unable to load fraud dataset from configured paths. "
+        "Using synthetic fallback dataset instead. "
+        f"Errors: {'; '.join(load_errors)}",
+        flush=True,
     )
+    return _build_fallback_dataset(), "synthetic_fallback_dataset"
 
 # Import the forensic risk engine — supports both package and standalone usage
 try:

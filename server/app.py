@@ -30,18 +30,19 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 import yaml
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except Exception:  # pragma: no cover
+    OpenAI = None  # type: ignore[assignment]
 
 try:
     from openenv.core.env_server.http_server import create_app
-except Exception as e:  # pragma: no cover
-    raise ImportError(
-        "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
-    ) from e
+except Exception:  # pragma: no cover
+    create_app = None  # type: ignore[assignment]
 
 try:
     from ..models import RiskPredictionAction, RiskPredictionObservation
@@ -51,36 +52,78 @@ except (ModuleNotFoundError, ImportError):
     from server.risk_prediction_environment import RiskPredictionEnvironment
 
 
-def _create_openenv_app():
-    """Build the OpenEnv FastAPI app with cross-version create_app compatibility."""
-    try:
-        return create_app(
-            RiskPredictionEnvironment,
-            RiskPredictionAction,
-            RiskPredictionObservation,
-            env_name="risk_prediction",
-            max_concurrent_envs=1,
-        )
-    except TypeError:
-        pass
+def _build_degraded_app(detail: str) -> FastAPI:
+    degraded = FastAPI(title="Risk Prediction (degraded)")
 
-    try:
-        return create_app(
-            RiskPredictionEnvironment,
-            RiskPredictionAction,
-            RiskPredictionObservation,
-            env_name="risk_prediction",
-        )
-    except TypeError:
-        return create_app(
-            RiskPredictionEnvironment,
-            RiskPredictionAction,
-            RiskPredictionObservation,
-        )
+    @degraded.get("/health")
+    def _health() -> Dict[str, str]:
+        return {"status": "degraded", "detail": detail}
+
+    @degraded.post("/reset")
+    def _reset_unavailable() -> None:
+        raise HTTPException(status_code=503, detail="environment_unavailable")
+
+    @degraded.post("/step")
+    def _step_unavailable() -> None:
+        raise HTTPException(status_code=503, detail="environment_unavailable")
+
+    return degraded
+
+
+def _create_openenv_app() -> FastAPI:
+    """Build the OpenEnv FastAPI app with cross-version create_app compatibility."""
+    if create_app is None:
+        raise RuntimeError("openenv_http_server_unavailable")
+
+    call_variants = [
+        {
+            "args": (
+                RiskPredictionEnvironment,
+                RiskPredictionAction,
+                RiskPredictionObservation,
+            ),
+            "kwargs": {
+                "env_name": "risk_prediction",
+                "max_concurrent_envs": 1,
+            },
+        },
+        {
+            "args": (
+                RiskPredictionEnvironment,
+                RiskPredictionAction,
+                RiskPredictionObservation,
+            ),
+            "kwargs": {"env_name": "risk_prediction"},
+        },
+        {
+            "args": (
+                RiskPredictionEnvironment,
+                RiskPredictionAction,
+                RiskPredictionObservation,
+            ),
+            "kwargs": {},
+        },
+    ]
+
+    last_type_error: Optional[TypeError] = None
+    for variant in call_variants:
+        try:
+            return create_app(*variant["args"], **variant["kwargs"])
+        except TypeError as exc:
+            last_type_error = exc
+
+    if last_type_error is not None:
+        raise last_type_error
+    raise RuntimeError("openenv_create_app_failed")
 
 
 # Create the app with web interface and README integration
-app = _create_openenv_app()
+_APP_STARTUP_ERROR: Optional[str] = None
+try:
+    app = _create_openenv_app()
+except Exception as exc:  # pragma: no cover
+    _APP_STARTUP_ERROR = f"{type(exc).__name__}: {exc}"
+    app = _build_degraded_app(_APP_STARTUP_ERROR)
 
 
 _OPENENV_YAML_PATH = Path(__file__).resolve().parents[1] / "openenv.yaml"
@@ -159,10 +202,16 @@ _GRADER_PROMPTS = {
 
 
 def _llm_grade(difficulty: str) -> float:
+    if OpenAI is None:
+        raise RuntimeError("openai_client_unavailable")
+
     prompt = _GRADER_PROMPTS[difficulty]
-    api_key = os.environ["API_KEY"]
-    api_base = os.environ["API_BASE_URL"]
-    model = os.environ["MODEL_NAME"]
+    api_key = os.environ.get("API_KEY")
+    api_base = os.environ.get("API_BASE_URL")
+    model = os.environ.get("MODEL_NAME")
+    if not api_key or not api_base or not model:
+        raise RuntimeError("missing_grader_env_vars")
+
     client = OpenAI(base_url=api_base, api_key=api_key)
     completion = client.chat.completions.create(
         model=model,
@@ -193,7 +242,11 @@ def grade_task(task_id: str):
     if difficulty not in _GRADER_PROMPTS:
         raise HTTPException(status_code=422, detail=f"Unsupported task difficulty: {difficulty}")
 
-    score = max(0.01, min(0.99, _llm_grade(difficulty)))
+    try:
+        score = max(0.01, min(0.99, _llm_grade(difficulty)))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"grader_unavailable: {type(exc).__name__}") from exc
+
     return {"score": score, "reward": score}
 
 
